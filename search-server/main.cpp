@@ -222,9 +222,8 @@ private:
                 continue;
             } //map<int, DocumentData> documents_;
             const double inverse_document_freq = ComputeWordInverseDocumentFreq(word);
-            DocumentData temp_doc_data;
             for (const auto [document_id, term_freq] : word_to_document_freqs_.at(word)) {
-                temp_doc_data = documents_.at(document_id);
+                DocumentData temp_doc_data = documents_.at(document_id);
                 if (FilterByStsRating(document_id, temp_doc_data.status, temp_doc_data.rating)) {
                     document_to_relevance[document_id] += term_freq * inverse_document_freq;
                 }
