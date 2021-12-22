@@ -1,4 +1,6 @@
-﻿#include <algorithm>
+﻿// search_server_s1_t2_v2.cpp
+
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <map>
@@ -79,7 +81,7 @@ public:
     }
 
     vector<Document> FindTopDocuments(const string& raw_query) const {
-        return FindTopDocuments(raw_query, [](int document_id, DocumentStatus status, int rating) { return status == DocumentStatus::ACTUAL; });
+        return FindTopDocuments(raw_query, DocumentStatus::ACTUAL);
     }
 
     vector<Document> FindTopDocuments(const string& raw_query, DocumentStatus status) const {
@@ -88,9 +90,9 @@ public:
     }
 
     template <typename Predicate>
-    vector<Document> FindTopDocuments(const string& raw_query, Predicate P) const {
+    vector<Document> FindTopDocuments(const string& raw_query, Predicate FilterByStsRating) const {
         const Query query = ParseQuery(raw_query);
-        auto matched_documents = FindAllDocuments(query, P);
+        auto matched_documents = FindAllDocuments(query, FilterByStsRating);
 
         sort(matched_documents.begin(), matched_documents.end(),
             [](const Document& lhs, const Document& rhs) {
@@ -211,21 +213,23 @@ private:
     double ComputeWordInverseDocumentFreq(const string& word) const {
         return log(GetDocumentCount() * 1.0 / word_to_document_freqs_.at(word).size());
     }
+
     template <typename Predicate>
-    vector<Document> FindAllDocuments(const Query& query, Predicate P) const {
+    vector<Document> FindAllDocuments(const Query& query, Predicate FilterByStsRating) const {
         map<int, double> document_to_relevance;
         for (const string& word : query.plus_words) {
             if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             } //map<int, DocumentData> documents_;
             const double inverse_document_freq = ComputeWordInverseDocumentFreq(word);
+            DocumentData temp_doc_data;
             for (const auto [document_id, term_freq] : word_to_document_freqs_.at(word)) {
-                if (P(document_id, documents_.at(document_id).status, documents_.at(document_id).rating)) {
+                temp_doc_data = documents_.at(document_id);
+                if (FilterByStsRating(document_id, temp_doc_data.status, temp_doc_data.rating)) {
                     document_to_relevance[document_id] += term_freq * inverse_document_freq;
                 }
             }
         }
-
         for (const string& word : query.minus_words) {
             if (word_to_document_freqs_.count(word) == 0) {
                 continue;
@@ -234,7 +238,6 @@ private:
                 document_to_relevance.erase(document_id);
             }
         }
-
         vector<Document> matched_documents;
         for (const auto [document_id, relevance] : document_to_relevance) {
             matched_documents.push_back({
