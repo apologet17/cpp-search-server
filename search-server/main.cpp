@@ -8,7 +8,6 @@
 #include <vector>
 #include <iostream>
 #include <numeric>
-#include <optional>
 
 using namespace std;
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
@@ -68,7 +67,7 @@ public:
         : stop_words_(MakeUniqueNonEmptyStrings(stop_words)) {
         for (const auto& word : stop_words) {
             if (!IsValidWord(word))
-                throw invalid_argument("Stop word content special characters"s);
+                throw invalid_argument("Stop word \""s + word + "\" contents special characters"s);
         }      
     }
 
@@ -78,16 +77,18 @@ public:
     }
 
     void AddDocument(int document_id, const string& document, DocumentStatus status, const vector<int>& ratings) {
-        if ((document_id < 0) || (documents_.count(document_id) > 0))
-            throw invalid_argument("ID is negative or is absent in database"s);
+        if (document_id < 0)
+            throw invalid_argument("ID \""s + to_string(document_id) + "\" is negative"s);
+        if (documents_.count(document_id) > 0)
+            throw invalid_argument("ID \""s + to_string(document_id) + "\" is present in database"s);
         const vector<string> wordsInDoc = SplitIntoWordsNoStop(document);
         if (wordsInDoc.size() != 0) {
             for (const string& word : wordsInDoc)
                 if (!IsValidWord(word))
-                    throw invalid_argument("Stop word content special characters"s);
-            const double FractFreq = 1.0 / wordsInDoc.size();
+                    throw invalid_argument("Document's word \""s + word + "\" contents special characters"s);
+            const double fractFreq = 1.0 / wordsInDoc.size();
             for (const string& word : wordsInDoc) {
-                word_to_document_freqs_[word][document_id] += FractFreq;
+                word_to_document_freqs_[word][document_id] += fractFreq;
             }
         }
         documents_.emplace(document_id, DocumentData{ ComputeAverageRating(ratings), status });
@@ -96,13 +97,12 @@ public:
 
     template <typename DocumentPredicate>
     vector<Document> FindTopDocuments(const string& raw_query, DocumentPredicate document_predicate) const {
+        const double eps = 1e-6;
         const Query query = ParseQuery(raw_query);
-        if (query.errCode)
-            throw invalid_argument("Stop word content special characters"s);
         auto matched_documents = FindAllDocuments(query, document_predicate);
         sort(matched_documents.begin(), matched_documents.end(),
-            [](const Document& lhs, const Document& rhs) {
-                if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
+            [eps](const Document& lhs, const Document& rhs) {
+                if (abs(lhs.relevance - rhs.relevance) < eps) {
                     return lhs.rating > rhs.rating;
                 }
                 else {
@@ -130,8 +130,6 @@ public:
 
     tuple<vector<string>, DocumentStatus> MatchDocument(const string& raw_query, int document_id) const {
         const Query query = ParseQuery(raw_query);
-        if (query.errCode)
-            throw invalid_argument("Query is failed"s);
         vector<string> matched_words = {};
 
         if (documents_.count(document_id) == 0)
@@ -210,13 +208,11 @@ private:
         string data;
         bool is_minus;
         bool is_stop;
-        int errCode;
 
         QueryWord()
             : data(""s)
             , is_minus(false)
             , is_stop(false)
-            , errCode(0)
         {}
     };
 
@@ -224,14 +220,18 @@ private:
         QueryWord queryWord;
 
         if (text.empty()) {
-            queryWord.errCode = 1;
-            return queryWord;
+            throw invalid_argument("Query is empty"s);
+        }
+        if (!IsValidWord(text)) {
+            throw invalid_argument("Query \"" + text + "\" contents special characters"s);
         }
         if (text[0] == '-') {
-            if ((text[1] == '-') || (text.size() == 1)) {
-                queryWord.errCode = 1;
-                return queryWord;
-            }
+            if (text[1] == '-') {
+                throw invalid_argument("Query contents more then 1 minus character"s);
+            }  
+            if (text.size() == 1) {
+                throw invalid_argument("There are no a word after minus character"s);
+            }              
             queryWord.is_minus = true;
             text = text.substr(1);
         }
@@ -243,23 +243,17 @@ private:
     struct Query {
         set<string> plus_words;
         set<string> minus_words;
-        int errCode;
 
         Query()
             : plus_words({})
             , minus_words({})
-            , errCode(0)
         {}
     };
 
     Query ParseQuery(const string& text) const {
         Query query;
         for (const string& word : SplitIntoWords(text)) {
-            const QueryWord query_word = ParseQueryWord(word);
-            if (!IsValidWord(word) || query_word.errCode) {
-                query.errCode = 1;
-                return query;
-            }
+            const QueryWord query_word = ParseQueryWord(word);               
             if (!query_word.is_stop) {
                 if (query_word.is_minus) {
                     query.minus_words.insert(query_word.data);
@@ -362,25 +356,33 @@ void MatchDocuments(const SearchServer& search_server, const string& query) {
         }
     }
     catch (const exception& e) {
-        cout << "Error document match by query"s << query << ": "s << e.what() << endl;
+        cout << "Error document match by query "s << query << ": "s << e.what() << endl;
     }
 }
 
 int main() {
-    SearchServer search_server("и в на"s);
+    try {
+        SearchServer search_server("and in on"s);
 
-    AddDocument(search_server, 1, "пушистый кот пушистый хвост"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
-    AddDocument(search_server, 1, "пушистый пёс и модный ошейник"s, DocumentStatus::ACTUAL, { 1, 2 });
-    AddDocument(search_server, -1, "пушистый пёс и модный ошейник"s, DocumentStatus::ACTUAL, { 1, 2 });
-    AddDocument(search_server, 3, "большой пёс скво\x12рец евгений"s, DocumentStatus::ACTUAL, { 1, 3, 2 });
-    AddDocument(search_server, 4, "большой пёс скворец евгений"s, DocumentStatus::ACTUAL, { 1, 1, 1 });
+        AddDocument(search_server, 1, "fluffy cat fluffy tail"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
+        AddDocument(search_server, 1, "fluffy dog and fashion collar"s, DocumentStatus::ACTUAL, { 1, 2 });
+        AddDocument(search_server, -1, "fluffy dog and fashion collar"s, DocumentStatus::ACTUAL, { 1, 2 });
+        AddDocument(search_server, 3, "big dog bi\x12rd john"s, DocumentStatus::ACTUAL, { 1, 3, 2 });
+        AddDocument(search_server, 4, "big dog bird john"s, DocumentStatus::ACTUAL, { 1, 1, 1 });
 
-    FindTopDocuments(search_server, "пушистый -пёс"s);
-    FindTopDocuments(search_server, "пушистый --кот"s);
-    FindTopDocuments(search_server, "пушистый -"s);
+        FindTopDocuments(search_server, "fluffy -dog"s);
+        FindTopDocuments(search_server, "fluffy --cat"s);
+        FindTopDocuments(search_server, "fluffy -"s);
 
-    MatchDocuments(search_server, "пушистый пёс"s);
-    MatchDocuments(search_server, "модный -кот"s);
-    MatchDocuments(search_server, "модный --пёс"s);
-    MatchDocuments(search_server, "пушистый - хвост"s);
+        MatchDocuments(search_server, "fluffy dog"s);
+        MatchDocuments(search_server, "fashion -cat"s);
+        MatchDocuments(search_server, "fashion --dog"s);
+        MatchDocuments(search_server, "fluffy - tail"s);
+    }
+    catch (const invalid_argument& e) {
+        cout << e.what() << endl;
+    }
+    
+
+
 }
