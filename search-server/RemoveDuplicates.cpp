@@ -8,7 +8,7 @@ void RemoveDuplicates(SearchServer& search_server) {
     LOG_DURATION("REmove");
     std::set<std::set<std::string_view>> word_matrix;
     std::vector<int> ids;
-    ids.reserve(search_server.size());
+    ids.reserve(std::distance(search_server.begin(), search_server.end()));
     size_t current_size = 0;
 
     for (const int id : search_server) {
